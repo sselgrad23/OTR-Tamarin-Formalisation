@@ -1,0 +1,166 @@
+theory OTR3
+begin
+
+builtins: 
+  diffie-hellman, 
+  signing,
+  hashing
+
+/*** Key Infrastructure ***/
+
+/* Register signing/verification key pair. 
+ * ltk is the secret signing key
+ * pk(ltk) is the public verification key
+ */
+rule Register_key_pair:
+  [ Fr(~ltk) ]
+--[]->
+  [ !Ltk($A, ~ltk)
+  , !Pk($A, pk(~ltk))
+  , Out(pk(~ltk))
+  ]
+
+// Agent is compromised and its secret signing key is revealed
+rule Reveal_ltk:
+  [ !Ltk(A, ltk) ]
+--[ Reveal(A) ]->
+  [ Out(ltk) ]
+
+/*** Formalise OTR Authentic Key-Exchange with improvement***
+ * 1. A -> B : g^x, {g^x, B}sk_A, vk_A
+ * 2. B -> A : g^y, {g^y, A}sk_B, vk_B
+ */
+
+// Initialise thread for initiator role
+rule Init_A:
+  [ Fr(~id) 
+  , !Ltk(A, ltkA) // A's signing key
+  , !Pk(B, pkB)   // B's verification key
+  ]
+--[ Create_A(A, ~id) ]->
+  [ St_A_1(A, ~id, ltkA, pkB, B) ]
+
+// Initialise thread for responder role
+rule Init_B:
+  [ Fr(~id)
+  , !Ltk(B, ltkB) // B's signing key
+  , !Pk(A, pkA)   // A's verification key
+  ]
+--[ Create_B(B, ~id) ]->
+  [ St_B_1(B, ~id, ltkB, pkA, A) ]
+
+// Step 1.1: A sends g^x to B
+rule A_1_send:
+  let m = <'g'^~x, sign(<'INITIATOR', 'g'^~x, B>, ltkA), pk(ltkA)> // Include intended recipient in sig
+  in
+  [ St_A_1(A, id, ltkA, pkB, B) 
+  , Fr(~x)
+  ]
+--[ Send(A, m) ]->
+  [ St_A_2(A, id, ltkA, pkB, B, ~x)
+  , Out(m)
+  ]
+
+// Step 1.2: B receives g^x from A
+rule B_1_receive:
+  let m = <gx, signature, pkA>
+  in
+  [ St_B_1(B, id, ltkB, pkA, A)
+  , In(m)
+  ]
+--[ Recv(B, m) 
+  , Equal(verify(signature, <'INITIATOR', gx, B>, pkA), true) // Check signature
+  ]->
+  [ St_B_2(B, id, ltkB, pkA, A, gx) ]
+
+// Step 2.1: B sends g^y to A
+rule B_2_send:
+  let m = <'g'^~y, sign(<'RESPONDER', 'g'^~y, A>, ltkB), pk(ltkB)> // Include intended recipient in sig
+      K = h(gx^~y)
+  in
+  [ St_B_2(B, id, ltkB, pkA, A, gx)
+  , Fr(~y)
+  ]
+--[ Send(B, m) 
+  , Running(B, A, <'I', 'R', K>)
+  , Secret(B, K)
+  , Honest(B)
+  , Honest(A)
+  ]->
+  [ St_B_3(B, id, ltkB, pkA, A, gx, ~y, K)
+  , Out(m)
+  ]
+
+// Step 2.2: A receives g^y from B
+rule A_2_receive:
+  let m = <gy, signature, pkB>
+      K = h(gy^x)
+  in
+  [ St_A_2(A, id, ltkA, pkB, B, x)
+  , In(m)
+  ]
+--[ Recv(A, m)
+  , Equal(verify(signature, <'RESPONDER', gy, A>, pkB), true)
+  , Secret(A, K)
+  , Honest(A)
+  , Honest(B) 
+  , Commit(A, B, <'I', 'R', K>)
+  , Finish(A, B)
+  ]->
+  [ St_A_3(A, id, ltkA, pkB, B, x, gy, K) ]
+
+/*** Restrictions ***/
+restriction Equality:
+  "All a b #i.
+  Equal(a, b) @i ==> a = b
+  "
+
+/*** Lemmas ***/
+// Find intended execution trace - VERIFIES
+lemma executable:
+  exists-trace
+    "Ex a b #i. Finish(a, b) @i & not (a = b)
+    // Only one instance of each agent
+    & (All c d id1 id2 #j #k. Create_A(c, id1) @j & Create_A(d, id2) @k ==> id1 = id2)
+    & (All e f id3 id4 #l #m. Create_B(e, id3) @l & Create_B(f, id4) @m ==> id3 = id4)
+    & not(Ex X #n. Reveal(X) @n)
+    "
+
+// Secrecy of K - VERIFIES
+lemma secrecy:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// Perfect forward secrecy of K - VERIFIES
+lemma secrecy_PFS:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i & r < i)"
+
+// A agrees with B on K (and each other's identities) - FALSIFIES
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// A agrees with B on K (and each other's identities) 
+// Modified to only allow 1 instance of each agent - VERIFIES
+lemma injectiveagreement_INITIATOR_modified:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    // Only one instance of each agent
+    & (All c d id1 id2 #j #k. Create_A(c, id1) @j & Create_A(d, id2) @k ==> id1 = id2)
+    & (All e f id3 id4 #l #m. Create_B(e, id3) @l & Create_B(f, id4) @m ==> id3 = id4)
+    & not (a = b)
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+end

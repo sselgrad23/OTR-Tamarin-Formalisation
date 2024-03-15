@@ -1,0 +1,1385 @@
+theory OTR3 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, h/1, pair/2, pk/1, sign/2, snd/1, true/0,
+           verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+
+
+rule (modulo E) Register_key_pair:
+   [ Fr( ~ltk ) ]
+  -->
+   [ !Ltk( $A, ~ltk ), !Pk( $A, pk(~ltk) ), Out( pk(~ltk) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_ltk:
+   [ !Ltk( A, ltk ) ] --[ Reveal( A ) ]-> [ Out( ltk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ Fr( ~id ), !Ltk( A, ltkA ), !Pk( B, pkB ) ]
+  --[ Create_A( A, ~id ) ]->
+   [ St_A_1( A, ~id, ltkA, pkB, B ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ Fr( ~id ), !Ltk( B, ltkB ), !Pk( A, pkA ) ]
+  --[ Create_B( B, ~id ) ]->
+   [ St_B_1( B, ~id, ltkB, pkA, A ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_send:
+   [ St_A_1( A, id, ltkA, pkB, B ), Fr( ~x ) ]
+  --[
+  Send( A, <'g'^~x, sign(<'INITIATOR', 'g'^~x, B>, ltkA), pk(ltkA)> )
+  ]->
+   [
+   St_A_2( A, id, ltkA, pkB, B, ~x ),
+   Out( <'g'^~x, sign(<'INITIATOR', 'g'^~x, B>, ltkA), pk(ltkA)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_receive:
+   [ St_B_1( B, id, ltkB, pkA, A ), In( <gx, signature, pkA> ) ]
+  --[
+  Recv( B, <gx, signature, pkA> ),
+  Equal( verify(signature, <'INITIATOR', gx, B>, pkA), true )
+  ]->
+   [ St_B_2( B, id, ltkB, pkA, A, gx ) ]
+
+  /*
+  rule (modulo AC) B_1_receive:
+     [ St_B_1( B, id, ltkB, pkA, A ), In( <gx, signature, pkA> ) ]
+    --[ Recv( B, <gx, signature, pkA> ), Equal( z, true ) ]->
+     [ St_B_2( B, id, ltkB, pkA, A, gx ) ]
+    variants (modulo AC)
+    1. B     = B.9
+       gx    = gx.9
+       pkA   = pkA.9
+       signature
+             = signature.9
+       z     = verify(signature.9, <'INITIATOR', gx.9, B.9>, pkA.9)
+    
+    2. B     = x.9
+       gx    = x.10
+       pkA   = pk(x.13)
+       signature
+             = sign(<'INITIATOR', x.10, x.9>, x.13)
+       z     = true
+  */
+
+rule (modulo E) B_2_send:
+   [ St_B_2( B, id, ltkB, pkA, A, gx ), Fr( ~y ) ]
+  --[
+  Send( B, <'g'^~y, sign(<'RESPONDER', 'g'^~y, A>, ltkB), pk(ltkB)>
+  ),
+  Running( B, A, <'I', 'R', h(gx^~y)> ), Secret( B, h(gx^~y) ),
+  Honest( B ), Honest( A )
+  ]->
+   [
+   St_B_3( B, id, ltkB, pkA, A, gx, ~y, h(gx^~y) ),
+   Out( <'g'^~y, sign(<'RESPONDER', 'g'^~y, A>, ltkB), pk(ltkB)> )
+   ]
+
+  /*
+  rule (modulo AC) B_2_send:
+     [ St_B_2( B, id, ltkB, pkA, A, gx ), Fr( ~y ) ]
+    --[
+    Send( B, <'g'^~y, sign(<'RESPONDER', 'g'^~y, A>, ltkB), pk(ltkB)>
+    ),
+    Running( B, A, <'I', 'R', h(z)> ), Secret( B, h(z) ), Honest( B ),
+    Honest( A )
+    ]->
+     [
+     St_B_3( B, id, ltkB, pkA, A, gx, ~y, h(z) ),
+     Out( <'g'^~y, sign(<'RESPONDER', 'g'^~y, A>, ltkB), pk(ltkB)> )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.13
+       gx    = gx.16
+       z     = gx.16^~y.13
+    
+    2. ~y    = ~y.17
+       gx    = z.24^inv(~y.17)
+       z     = z.24
+    
+    3. ~y    = ~y.95
+       gx    = x.187^x.188
+       z     = x.187^(~y.95*x.188)
+    
+    4. ~y    = ~y.98
+       gx    = x.193^inv((~y.98*x.194))
+       z     = x.193^inv(x.194)
+    
+    5. ~y    = ~y.98
+       gx    = x.193^(x.194*inv(~y.98))
+       z     = x.193^x.194
+    
+    6. ~y    = ~y.99
+       gx    = x.194^(x.195*inv((~y.99*x.196)))
+       z     = x.194^(x.195*inv(x.196))
+  */
+
+rule (modulo E) A_2_receive:
+   [ St_A_2( A, id, ltkA, pkB, B, x ), In( <gy, signature, pkB> ) ]
+  --[
+  Recv( A, <gy, signature, pkB> ),
+  Equal( verify(signature, <'RESPONDER', gy, A>, pkB), true ),
+  Secret( A, h(gy^x) ), Honest( A ), Honest( B ),
+  Commit( A, B, <'I', 'R', h(gy^x)> ), Finish( A, B )
+  ]->
+   [ St_A_3( A, id, ltkA, pkB, B, x, gy, h(gy^x) ) ]
+
+  /*
+  rule (modulo AC) A_2_receive:
+     [ St_A_2( A, id, ltkA, pkB, B, x ), In( <gy, signature, pkB> ) ]
+    --[
+    Recv( A, <gy, signature, pkB> ), Equal( z.1, true ),
+    Secret( A, h(z) ), Honest( A ), Honest( B ),
+    Commit( A, B, <'I', 'R', h(z)> ), Finish( A, B )
+    ]->
+     [ St_A_3( A, id, ltkA, pkB, B, x, gy, h(z) ) ]
+    variants (modulo AC)
+     1. A     = A.18
+        gy    = gy.20
+        pkB   = pkB.23
+        signature
+              = signature.24
+        x     = one
+        z     = gy.20
+        z.1   = verify(signature.24, <'RESPONDER', gy.20, A.18>, pkB.23)
+    
+     2. A     = A.19
+        gy    = gy.21
+        pkB   = pkB.24
+        signature
+              = signature.25
+        x     = x.26
+        z     = gy.21^x.26
+        z.1   = verify(signature.25, <'RESPONDER', gy.21, A.19>, pkB.24)
+    
+     3. A     = A.20
+        gy    = z.28^inv(x.27)
+        pkB   = pkB.25
+        signature
+              = signature.26
+        x     = x.27
+        z     = z.28
+        z.1   = verify(signature.26, <'RESPONDER', z.28^inv(x.27), A.20>,
+                       pkB.25)
+    
+     4. A     = A.25
+        gy    = z.33^x.48
+        pkB   = pkB.30
+        signature
+              = signature.31
+        x     = inv(x.48)
+        z     = z.33
+        z.1   = verify(signature.31, <'RESPONDER', z.33^x.48, A.25>,
+                       pkB.30)
+    
+     5. A     = A.25
+        gy    = x.47^x.48
+        pkB   = pkB.30
+        signature
+              = signature.31
+        x     = x.32
+        z     = x.47^(x.32*x.48)
+        z.1   = verify(signature.31, <'RESPONDER', x.47^x.48, A.25>,
+                       pkB.30)
+    
+     6. A     = A.25
+        gy    = x.47^(x.48*inv(x.32))
+        pkB   = pkB.30
+        signature
+              = signature.31
+        x     = x.32
+        z     = x.47^x.48
+        z.1   = verify(signature.31,
+                       <'RESPONDER', x.47^(x.48*inv(x.32)), A.25>, pkB.30)
+    
+     7. A     = A.26
+        gy    = z.34^(x.49*inv(x.50))
+        pkB   = pkB.31
+        signature
+              = signature.32
+        x     = (x.50*inv(x.49))
+        z     = z.34
+        z.1   = verify(signature.32,
+                       <'RESPONDER', z.34^(x.49*inv(x.50)), A.26>, pkB.31)
+    
+     8. A     = A.26
+        gy    = x.48^inv((x.33*x.50))
+        pkB   = pkB.31
+        signature
+              = signature.32
+        x     = x.33
+        z     = x.48^inv(x.50)
+        z.1   = verify(signature.32,
+                       <'RESPONDER', x.48^inv((x.33*x.50)), A.26>, pkB.31)
+    
+     9. A     = A.26
+        gy    = x.48^(x.49*x.50)
+        pkB   = pkB.31
+        signature
+              = signature.32
+        x     = inv(x.49)
+        z     = x.48^x.50
+        z.1   = verify(signature.32, <'RESPONDER', x.48^(x.49*x.50), A.26>,
+                       pkB.31)
+    
+    10. A     = A.27
+        gy    = x.49^(x.50*x.51*inv(x.52))
+        pkB   = pkB.32
+        signature
+              = signature.33
+        x     = (x.52*inv(x.50))
+        z     = x.49^x.51
+        z.1   = verify(signature.33,
+                       <'RESPONDER', x.49^(x.50*x.51*inv(x.52)), A.27>, pkB.32)
+    
+    11. A     = A.27
+        gy    = x.49^(x.50*inv((x.34*x.52)))
+        pkB   = pkB.32
+        signature
+              = signature.33
+        x     = x.34
+        z     = x.49^(x.50*inv(x.52))
+        z.1   = verify(signature.33,
+                       <'RESPONDER', x.49^(x.50*inv((x.34*x.52))), A.27>, pkB.32)
+    
+    12. A     = A.27
+        gy    = x.49^(x.50*inv((x.51*x.52)))
+        pkB   = pkB.32
+        signature
+              = signature.33
+        x     = (x.51*inv(x.50))
+        z     = x.49^inv(x.52)
+        z.1   = verify(signature.33,
+                       <'RESPONDER', x.49^(x.50*inv((x.51*x.52))), A.27>, pkB.32)
+    
+    13. A     = A.28
+        gy    = x.50^(x.51*x.52*inv((x.53*x.54)))
+        pkB   = pkB.33
+        signature
+              = signature.34
+        x     = (x.53*inv(x.51))
+        z     = x.50^(x.52*inv(x.54))
+        z.1   = verify(signature.34,
+                       <'RESPONDER', x.50^(x.51*x.52*inv((x.53*x.54))), A.28>, pkB.33)
+    
+    14. A     = A.29
+        gy    = gy.31
+        pkB   = pk(x.56)
+        signature
+              = sign(<'RESPONDER', gy.31, A.29>, x.56)
+        x     = x.36
+        z     = gy.31^x.36
+        z.1   = true
+    
+    15. A     = A.29
+        gy    = gy.31
+        pkB   = pk(x.56)
+        signature
+              = sign(<'RESPONDER', gy.31, A.29>, x.56)
+        x     = one
+        z     = gy.31
+        z.1   = true
+    
+    16. A     = A.30
+        gy    = z.38^x.55
+        pkB   = pk(x.58)
+        signature
+              = sign(<'RESPONDER', z.38^x.55, A.30>, x.58)
+        x     = inv(x.55)
+        z     = z.38
+        z.1   = true
+    
+    17. A     = A.30
+        gy    = z.38^inv(x.37)
+        pkB   = pk(x.58)
+        signature
+              = sign(<'RESPONDER', z.38^inv(x.37), A.30>, x.58)
+        x     = x.37
+        z     = z.38
+        z.1   = true
+    
+    18. A     = A.30
+        gy    = x.52^x.53
+        pkB   = pkB.35
+        signature
+              = signature.36
+        x     = inv((x.53*x.58))
+        z     = x.52^inv(x.58)
+        z.1   = verify(signature.36, <'RESPONDER', x.52^x.53, A.30>,
+                       pkB.35)
+    
+    19. A     = A.30
+        gy    = x.52^x.53
+        pkB   = pkB.35
+        signature
+              = signature.36
+        x     = (x.58*inv(x.53))
+        z     = x.52^x.58
+        z.1   = verify(signature.36, <'RESPONDER', x.52^x.53, A.30>,
+                       pkB.35)
+    
+    20. A     = A.30
+        gy    = x.52^inv(x.53)
+        pkB   = pkB.35
+        signature
+              = signature.36
+        x     = inv(x.58)
+        z     = x.52^inv((x.53*x.58))
+        z.1   = verify(signature.36, <'RESPONDER', x.52^inv(x.53), A.30>,
+                       pkB.35)
+    
+    21. A     = A.30
+        gy    = x.52^inv(x.53)
+        pkB   = pkB.35
+        signature
+              = signature.36
+        x     = (x.53*x.58)
+        z     = x.52^x.58
+        z.1   = verify(signature.36, <'RESPONDER', x.52^inv(x.53), A.30>,
+                       pkB.35)
+    
+    22. A     = A.30
+        gy    = x.54^x.55
+        pkB   = pk(x.58)
+        signature
+              = sign(<'RESPONDER', x.54^x.55, A.30>, x.58)
+        x     = x.37
+        z     = x.54^(x.37*x.55)
+        z.1   = true
+    
+    23. A     = A.31
+        gy    = z.39^(x.56*inv(x.57))
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', z.39^(x.56*inv(x.57)), A.31>, x.60)
+        x     = (x.57*inv(x.56))
+        z     = z.39
+        z.1   = true
+    
+    24. A     = A.31
+        gy    = x.53^x.54
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.59*inv((x.54*x.60)))
+        z     = x.53^(x.59*inv(x.60))
+        z.1   = verify(signature.37, <'RESPONDER', x.53^x.54, A.31>,
+                       pkB.36)
+    
+    25. A     = A.31
+        gy    = x.53^inv(x.54)
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.59*inv(x.60))
+        z     = x.53^(x.59*inv((x.54*x.60)))
+        z.1   = verify(signature.37, <'RESPONDER', x.53^inv(x.54), A.31>,
+                       pkB.36)
+    
+    26. A     = A.31
+        gy    = x.53^inv((x.54*x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.54*x.60)
+        z     = x.53^(x.60*inv(x.55))
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^inv((x.54*x.55)), A.31>, pkB.36)
+    
+    27. A     = A.31
+        gy    = x.53^inv((x.54*x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.54*inv(x.60))
+        z     = x.53^inv((x.55*x.60))
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^inv((x.54*x.55)), A.31>, pkB.36)
+    
+    28. A     = A.31
+        gy    = x.53^(x.54*x.55)
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = inv((x.54*x.60))
+        z     = x.53^(x.55*inv(x.60))
+        z.1   = verify(signature.37, <'RESPONDER', x.53^(x.54*x.55), A.31>,
+                       pkB.36)
+    
+    29. A     = A.31
+        gy    = x.53^(x.54*x.55)
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.60*inv(x.54))
+        z     = x.53^(x.55*x.60)
+        z.1   = verify(signature.37, <'RESPONDER', x.53^(x.54*x.55), A.31>,
+                       pkB.36)
+    
+    30. A     = A.31
+        gy    = x.53^(x.54*inv(x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = inv(x.60)
+        z     = x.53^(x.54*inv((x.55*x.60)))
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^(x.54*inv(x.55)), A.31>, pkB.36)
+    
+    31. A     = A.31
+        gy    = x.53^(x.54*inv(x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = inv((x.54*x.60))
+        z     = x.53^inv((x.55*x.60))
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^(x.54*inv(x.55)), A.31>, pkB.36)
+    
+    32. A     = A.31
+        gy    = x.53^(x.54*inv(x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.55*x.60)
+        z     = x.53^(x.54*x.60)
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^(x.54*inv(x.55)), A.31>, pkB.36)
+    
+    33. A     = A.31
+        gy    = x.53^(x.54*inv(x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.55*x.60*inv(x.54))
+        z     = x.53^x.60
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^(x.54*inv(x.55)), A.31>, pkB.36)
+    
+    34. A     = A.31
+        gy    = x.53^(x.54*inv(x.55))
+        pkB   = pkB.36
+        signature
+              = signature.37
+        x     = (x.55*inv((x.54*x.60)))
+        z     = x.53^inv(x.60)
+        z.1   = verify(signature.37,
+                       <'RESPONDER', x.53^(x.54*inv(x.55)), A.31>, pkB.36)
+    
+    35. A     = A.31
+        gy    = x.55^x.56
+        pkB   = pk(x.59)
+        signature
+              = sign(<'RESPONDER', x.55^x.56, A.31>, x.59)
+        x     = inv((x.56*x.60))
+        z     = x.55^inv(x.60)
+        z.1   = true
+    
+    36. A     = A.31
+        gy    = x.55^x.56
+        pkB   = pk(x.59)
+        signature
+              = sign(<'RESPONDER', x.55^x.56, A.31>, x.59)
+        x     = (x.60*inv(x.56))
+        z     = x.55^x.60
+        z.1   = true
+    
+    37. A     = A.31
+        gy    = x.55^inv(x.56)
+        pkB   = pk(x.59)
+        signature
+              = sign(<'RESPONDER', x.55^inv(x.56), A.31>, x.59)
+        x     = inv(x.60)
+        z     = x.55^inv((x.56*x.60))
+        z.1   = true
+    
+    38. A     = A.31
+        gy    = x.55^inv(x.56)
+        pkB   = pk(x.59)
+        signature
+              = sign(<'RESPONDER', x.55^inv(x.56), A.31>, x.59)
+        x     = (x.56*x.60)
+        z     = x.55^x.60
+        z.1   = true
+    
+    39. A     = A.31
+        gy    = x.55^inv((x.38*x.57))
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', x.55^inv((x.38*x.57)), A.31>, x.60)
+        x     = x.38
+        z     = x.55^inv(x.57)
+        z.1   = true
+    
+    40. A     = A.31
+        gy    = x.55^(x.56*x.57)
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', x.55^(x.56*x.57), A.31>, x.60)
+        x     = inv(x.56)
+        z     = x.55^x.57
+        z.1   = true
+    
+    41. A     = A.31
+        gy    = x.55^(x.56*inv(x.38))
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', x.55^(x.56*inv(x.38)), A.31>, x.60)
+        x     = x.38
+        z     = x.55^x.56
+        z.1   = true
+    
+    42. A     = A.32
+        gy    = x.54^inv((x.55*x.56))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.55*x.61*inv(x.62))
+        z     = x.54^(x.61*inv((x.56*x.62)))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^inv((x.55*x.56)), A.32>, pkB.37)
+    
+    43. A     = A.32
+        gy    = x.54^(x.55*x.56)
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.61*inv((x.55*x.62)))
+        z     = x.54^(x.56*x.61*inv(x.62))
+        z.1   = verify(signature.38, <'RESPONDER', x.54^(x.55*x.56), A.32>,
+                       pkB.37)
+    
+    44. A     = A.32
+        gy    = x.54^(x.55*x.56*inv(x.57))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = inv((x.55*x.62))
+        z     = x.54^(x.56*inv((x.57*x.62)))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*x.56*inv(x.57)), A.32>, pkB.37)
+    
+    45. A     = A.32
+        gy    = x.54^(x.55*x.56*inv(x.57))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.57*x.62*inv(x.55))
+        z     = x.54^(x.56*x.62)
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*x.56*inv(x.57)), A.32>, pkB.37)
+    
+    46. A     = A.32
+        gy    = x.54^(x.55*x.56*inv(x.57))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.57*inv((x.55*x.62)))
+        z     = x.54^(x.56*inv(x.62))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*x.56*inv(x.57)), A.32>, pkB.37)
+    
+    47. A     = A.32
+        gy    = x.54^(x.55*inv(x.56))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.56*x.61*inv((x.55*x.62)))
+        z     = x.54^(x.61*inv(x.62))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv(x.56)), A.32>, pkB.37)
+    
+    48. A     = A.32
+        gy    = x.54^(x.55*inv(x.56))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.61*inv(x.62))
+        z     = x.54^(x.55*x.61*inv((x.56*x.62)))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv(x.56)), A.32>, pkB.37)
+    
+    49. A     = A.32
+        gy    = x.54^(x.55*inv(x.56))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.61*inv((x.55*x.62)))
+        z     = x.54^(x.61*inv((x.56*x.62)))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv(x.56)), A.32>, pkB.37)
+    
+    50. A     = A.32
+        gy    = x.54^(x.55*inv((x.56*x.57)))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.56*x.62)
+        z     = x.54^(x.55*x.62*inv(x.57))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv((x.56*x.57))), A.32>, pkB.37)
+    
+    51. A     = A.32
+        gy    = x.54^(x.55*inv((x.56*x.57)))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.56*x.62*inv(x.55))
+        z     = x.54^(x.62*inv(x.57))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv((x.56*x.57))), A.32>, pkB.37)
+    
+    52. A     = A.32
+        gy    = x.54^(x.55*inv((x.56*x.57)))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.56*inv(x.62))
+        z     = x.54^(x.55*inv((x.57*x.62)))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv((x.56*x.57))), A.32>, pkB.37)
+    
+    53. A     = A.32
+        gy    = x.54^(x.55*inv((x.56*x.57)))
+        pkB   = pkB.37
+        signature
+              = signature.38
+        x     = (x.56*inv((x.55*x.62)))
+        z     = x.54^inv((x.57*x.62))
+        z.1   = verify(signature.38,
+                       <'RESPONDER', x.54^(x.55*inv((x.56*x.57))), A.32>, pkB.37)
+    
+    54. A     = A.32
+        gy    = x.56^x.57
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', x.56^x.57, A.32>, x.60)
+        x     = (x.61*inv((x.57*x.62)))
+        z     = x.56^(x.61*inv(x.62))
+        z.1   = true
+    
+    55. A     = A.32
+        gy    = x.56^inv(x.57)
+        pkB   = pk(x.60)
+        signature
+              = sign(<'RESPONDER', x.56^inv(x.57), A.32>, x.60)
+        x     = (x.61*inv(x.62))
+        z     = x.56^(x.61*inv((x.57*x.62)))
+        z.1   = true
+    
+    56. A     = A.32
+        gy    = x.56^inv((x.57*x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^inv((x.57*x.58)), A.32>, x.61)
+        x     = (x.57*x.62)
+        z     = x.56^(x.62*inv(x.58))
+        z.1   = true
+    
+    57. A     = A.32
+        gy    = x.56^inv((x.57*x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^inv((x.57*x.58)), A.32>, x.61)
+        x     = (x.57*inv(x.62))
+        z     = x.56^inv((x.58*x.62))
+        z.1   = true
+    
+    58. A     = A.32
+        gy    = x.56^(x.57*x.58)
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*x.58), A.32>, x.61)
+        x     = inv((x.57*x.62))
+        z     = x.56^(x.58*inv(x.62))
+        z.1   = true
+    
+    59. A     = A.32
+        gy    = x.56^(x.57*x.58)
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*x.58), A.32>, x.61)
+        x     = (x.62*inv(x.57))
+        z     = x.56^(x.58*x.62)
+        z.1   = true
+    
+    60. A     = A.32
+        gy    = x.56^(x.57*x.58*inv(x.59))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*x.58*inv(x.59)), A.32>, x.62)
+        x     = (x.59*inv(x.57))
+        z     = x.56^x.58
+        z.1   = true
+    
+    61. A     = A.32
+        gy    = x.56^(x.57*inv(x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv(x.58)), A.32>, x.61)
+        x     = inv(x.62)
+        z     = x.56^(x.57*inv((x.58*x.62)))
+        z.1   = true
+    
+    62. A     = A.32
+        gy    = x.56^(x.57*inv(x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv(x.58)), A.32>, x.61)
+        x     = inv((x.57*x.62))
+        z     = x.56^inv((x.58*x.62))
+        z.1   = true
+    
+    63. A     = A.32
+        gy    = x.56^(x.57*inv(x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv(x.58)), A.32>, x.61)
+        x     = (x.58*x.62)
+        z     = x.56^(x.57*x.62)
+        z.1   = true
+    
+    64. A     = A.32
+        gy    = x.56^(x.57*inv(x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv(x.58)), A.32>, x.61)
+        x     = (x.58*x.62*inv(x.57))
+        z     = x.56^x.62
+        z.1   = true
+    
+    65. A     = A.32
+        gy    = x.56^(x.57*inv(x.58))
+        pkB   = pk(x.61)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv(x.58)), A.32>, x.61)
+        x     = (x.58*inv((x.57*x.62)))
+        z     = x.56^inv(x.62)
+        z.1   = true
+    
+    66. A     = A.32
+        gy    = x.56^(x.57*inv((x.39*x.59)))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv((x.39*x.59))), A.32>, x.62)
+        x     = x.39
+        z     = x.56^(x.57*inv(x.59))
+        z.1   = true
+    
+    67. A     = A.32
+        gy    = x.56^(x.57*inv((x.58*x.59)))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.56^(x.57*inv((x.58*x.59))), A.32>, x.62)
+        x     = (x.58*inv(x.57))
+        z     = x.56^inv(x.59)
+        z.1   = true
+    
+    68. A     = A.33
+        gy    = x.55^(x.56*x.57*inv(x.58))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.58*x.63*inv((x.56*x.64)))
+        z     = x.55^(x.57*x.63*inv(x.64))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*x.57*inv(x.58)), A.33>, pkB.38)
+    
+    69. A     = A.33
+        gy    = x.55^(x.56*x.57*inv(x.58))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.63*inv((x.56*x.64)))
+        z     = x.55^(x.57*x.63*inv((x.58*x.64)))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*x.57*inv(x.58)), A.33>, pkB.38)
+    
+    70. A     = A.33
+        gy    = x.55^(x.56*x.57*inv((x.58*x.59)))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.58*x.64*inv(x.56))
+        z     = x.55^(x.57*x.64*inv(x.59))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*x.57*inv((x.58*x.59))), A.33>, pkB.38)
+    
+    71. A     = A.33
+        gy    = x.55^(x.56*x.57*inv((x.58*x.59)))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.58*inv((x.56*x.64)))
+        z     = x.55^(x.57*inv((x.59*x.64)))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*x.57*inv((x.58*x.59))), A.33>, pkB.38)
+    
+    72. A     = A.33
+        gy    = x.55^(x.56*inv((x.57*x.58)))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.57*x.63*inv(x.64))
+        z     = x.55^(x.56*x.63*inv((x.58*x.64)))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*inv((x.57*x.58))), A.33>, pkB.38)
+    
+    73. A     = A.33
+        gy    = x.55^(x.56*inv((x.57*x.58)))
+        pkB   = pkB.38
+        signature
+              = signature.39
+        x     = (x.57*x.63*inv((x.56*x.64)))
+        z     = x.55^(x.63*inv((x.58*x.64)))
+        z.1   = verify(signature.39,
+                       <'RESPONDER', x.55^(x.56*inv((x.57*x.58))), A.33>, pkB.38)
+    
+    74. A     = A.33
+        gy    = x.57^inv((x.58*x.59))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.57^inv((x.58*x.59)), A.33>, x.62)
+        x     = (x.58*x.63*inv(x.64))
+        z     = x.57^(x.63*inv((x.59*x.64)))
+        z.1   = true
+    
+    75. A     = A.33
+        gy    = x.57^(x.58*x.59)
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*x.59), A.33>, x.62)
+        x     = (x.63*inv((x.58*x.64)))
+        z     = x.57^(x.59*x.63*inv(x.64))
+        z.1   = true
+    
+    76. A     = A.33
+        gy    = x.57^(x.58*x.59*inv(x.60))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*x.59*inv(x.60)), A.33>, x.63)
+        x     = inv((x.58*x.64))
+        z     = x.57^(x.59*inv((x.60*x.64)))
+        z.1   = true
+    
+    77. A     = A.33
+        gy    = x.57^(x.58*x.59*inv(x.60))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*x.59*inv(x.60)), A.33>, x.63)
+        x     = (x.60*x.64*inv(x.58))
+        z     = x.57^(x.59*x.64)
+        z.1   = true
+    
+    78. A     = A.33
+        gy    = x.57^(x.58*x.59*inv(x.60))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*x.59*inv(x.60)), A.33>, x.63)
+        x     = (x.60*inv((x.58*x.64)))
+        z     = x.57^(x.59*inv(x.64))
+        z.1   = true
+    
+    79. A     = A.33
+        gy    = x.57^(x.58*x.59*inv((x.60*x.61)))
+        pkB   = pk(x.64)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*x.59*inv((x.60*x.61))), A.33>,
+                     x.64)
+        x     = (x.60*inv(x.58))
+        z     = x.57^(x.59*inv(x.61))
+        z.1   = true
+    
+    80. A     = A.33
+        gy    = x.57^(x.58*inv(x.59))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv(x.59)), A.33>, x.62)
+        x     = (x.59*x.63*inv((x.58*x.64)))
+        z     = x.57^(x.63*inv(x.64))
+        z.1   = true
+    
+    81. A     = A.33
+        gy    = x.57^(x.58*inv(x.59))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv(x.59)), A.33>, x.62)
+        x     = (x.63*inv(x.64))
+        z     = x.57^(x.58*x.63*inv((x.59*x.64)))
+        z.1   = true
+    
+    82. A     = A.33
+        gy    = x.57^(x.58*inv(x.59))
+        pkB   = pk(x.62)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv(x.59)), A.33>, x.62)
+        x     = (x.63*inv((x.58*x.64)))
+        z     = x.57^(x.63*inv((x.59*x.64)))
+        z.1   = true
+    
+    83. A     = A.33
+        gy    = x.57^(x.58*inv((x.59*x.60)))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv((x.59*x.60))), A.33>, x.63)
+        x     = (x.59*x.64)
+        z     = x.57^(x.58*x.64*inv(x.60))
+        z.1   = true
+    
+    84. A     = A.33
+        gy    = x.57^(x.58*inv((x.59*x.60)))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv((x.59*x.60))), A.33>, x.63)
+        x     = (x.59*x.64*inv(x.58))
+        z     = x.57^(x.64*inv(x.60))
+        z.1   = true
+    
+    85. A     = A.33
+        gy    = x.57^(x.58*inv((x.59*x.60)))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv((x.59*x.60))), A.33>, x.63)
+        x     = (x.59*inv(x.64))
+        z     = x.57^(x.58*inv((x.60*x.64)))
+        z.1   = true
+    
+    86. A     = A.33
+        gy    = x.57^(x.58*inv((x.59*x.60)))
+        pkB   = pk(x.63)
+        signature
+              = sign(<'RESPONDER', x.57^(x.58*inv((x.59*x.60))), A.33>, x.63)
+        x     = (x.59*inv((x.58*x.64)))
+        z     = x.57^inv((x.60*x.64))
+        z.1   = true
+    
+    87. A     = A.34
+        gy    = x.56^(x.57*x.58*inv((x.59*x.60)))
+        pkB   = pkB.39
+        signature
+              = signature.40
+        x     = (x.59*x.65*inv((x.57*x.66)))
+        z     = x.56^(x.58*x.65*inv((x.60*x.66)))
+        z.1   = verify(signature.40,
+                       <'RESPONDER', x.56^(x.57*x.58*inv((x.59*x.60))), A.34>, pkB.39)
+    
+    88. A     = A.34
+        gy    = x.58^(x.59*x.60*inv(x.61))
+        pkB   = pk(x.64)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*x.60*inv(x.61)), A.34>, x.64)
+        x     = (x.61*x.65*inv((x.59*x.66)))
+        z     = x.58^(x.60*x.65*inv(x.66))
+        z.1   = true
+    
+    89. A     = A.34
+        gy    = x.58^(x.59*x.60*inv(x.61))
+        pkB   = pk(x.64)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*x.60*inv(x.61)), A.34>, x.64)
+        x     = (x.65*inv((x.59*x.66)))
+        z     = x.58^(x.60*x.65*inv((x.61*x.66)))
+        z.1   = true
+    
+    90. A     = A.34
+        gy    = x.58^(x.59*x.60*inv((x.61*x.62)))
+        pkB   = pk(x.65)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*x.60*inv((x.61*x.62))), A.34>,
+                     x.65)
+        x     = (x.61*x.66*inv(x.59))
+        z     = x.58^(x.60*x.66*inv(x.62))
+        z.1   = true
+    
+    91. A     = A.34
+        gy    = x.58^(x.59*x.60*inv((x.61*x.62)))
+        pkB   = pk(x.65)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*x.60*inv((x.61*x.62))), A.34>,
+                     x.65)
+        x     = (x.61*inv((x.59*x.66)))
+        z     = x.58^(x.60*inv((x.62*x.66)))
+        z.1   = true
+    
+    92. A     = A.34
+        gy    = x.58^(x.59*inv((x.60*x.61)))
+        pkB   = pk(x.64)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*inv((x.60*x.61))), A.34>, x.64)
+        x     = (x.60*x.65*inv(x.66))
+        z     = x.58^(x.59*x.65*inv((x.61*x.66)))
+        z.1   = true
+    
+    93. A     = A.34
+        gy    = x.58^(x.59*inv((x.60*x.61)))
+        pkB   = pk(x.64)
+        signature
+              = sign(<'RESPONDER', x.58^(x.59*inv((x.60*x.61))), A.34>, x.64)
+        x     = (x.60*x.65*inv((x.59*x.66)))
+        z     = x.58^(x.65*inv((x.61*x.66)))
+        z.1   = true
+    
+    94. A     = A.35
+        gy    = x.59^(x.60*x.61*inv((x.62*x.63)))
+        pkB   = pk(x.66)
+        signature
+              = sign(<'RESPONDER', x.59^(x.60*x.61*inv((x.62*x.63))), A.35>,
+                     x.66)
+        x     = (x.62*x.67*inv((x.60*x.68)))
+        z     = x.59^(x.61*x.67*inv((x.63*x.68)))
+        z.1   = true
+  */
+
+restriction Equality:
+  "∀ a b #i. (Equal( a, b ) @ #i) ⇒ (a = b)"
+  // safety formula
+
+lemma executable:
+  exists-trace
+  "∃ a b #i.
+    ((((Finish( a, b ) @ #i) ∧ (¬(a = b))) ∧
+      (∀ c d id1 id2 #j #k.
+        ((Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)) ⇒
+        (id1 = id2))) ∧
+     (∀ e f id3 id4 #l #m.
+       ((Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)) ⇒
+       (id3 = id4))) ∧
+    (¬(∃ X #n. Reveal( X ) @ #n))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ a b #i.
+  (Finish( a, b ) @ #i)
+ ∧
+  (¬(a = b)) ∧
+  (∀ c d id1 id2 #j #k.
+    (Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)
+   ⇒
+    id1 = id2) ∧
+  (∀ e f id3 id4 #l #m.
+    (Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)
+   ⇒
+    id3 = id4) ∧
+  (∀ X #n. (Reveal( X ) @ #n) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, id, ltkA, pk(x), b, x.1 ) ▶₀ #i )
+  case A_1_send
+  solve( !KU( sign(<'RESPONDER', gy, $A>, ~ltk.1) ) @ #vk.3 )
+    case B_2_send
+    solve( !KU( sign(<'INITIATOR', gx, $A.1>, ~ltk.2) ) @ #vk.8 )
+      case A_1_send
+      solve( !KU( pk(~ltk.1) ) @ #vk.5 )
+        case B_2_send
+        solve( !KU( pk(~ltk) ) @ #vk.9 )
+          case A_1_send
+          solve( !KU( 'g'^~y ) @ #vk.8 )
+            case B_2_send
+            solve( !KU( 'g'^~x ) @ #vk.9 )
+              case A_1_send
+              SOLVED // trace found
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma secrecy:
+  all-traces
+  "∀ A x #i.
+    (Secret( A, x ) @ #i) ⇒
+    ((¬(∃ #j. K( x ) @ #j)) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A x #i.
+  (Secret( A, x ) @ #i)
+ ∧
+  (∃ #j. (K( x ) @ #j)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Secret( A, x ) @ #i )
+  case A_2_receive
+  solve( St_A_2( A, id, ltkA, pk(x), B, x.1 ) ▶₀ #i )
+    case A_1_send
+    solve( !KU( sign(<'RESPONDER', gy, $A>, ~ltk.1) ) @ #vk.4 )
+      case B_2_send
+      solve( !KU( h('g'^(~x*~y)) ) @ #vk.1 )
+        case c_h
+        solve( !KU( sign(<'INITIATOR', gx, $A.1>, ~ltk.2) ) @ #vk.9 )
+          case A_1_send
+          solve( !KU( 'g'^(~x*~y) ) @ #vk.11 )
+            case A_1_send
+            by solve( !KU( ~y ) @ #vk.12 )
+          next
+            case B_2_send
+            by solve( !KU( ~x ) @ #vk.12 )
+          next
+            case c_exp
+            by solve( !KU( ~x ) @ #vk.14 )
+          qed
+        next
+          case c_sign
+          solve( !KU( ~ltk.2 ) @ #vk.14 )
+            case Reveal_ltk
+            by contradiction /* from formulas */
+          qed
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltk.1 ) @ #vk.8 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case B_2_send
+  solve( St_B_2( A, id, ltkB, pkA, A.1, gx ) ▶₀ #i )
+    case B_1_receive
+    solve( !KU( sign(<'INITIATOR', gx, $A>, ~ltk.1) ) @ #vk.4 )
+      case A_1_send
+      solve( !KU( h('g'^(~x*~y)) ) @ #vk.1 )
+        case c_h
+        solve( !KU( 'g'^(~x*~y) ) @ #vk.6 )
+          case A_1_send
+          by solve( !KU( ~y ) @ #vk.7 )
+        next
+          case B_2_send
+          by solve( !KU( ~x ) @ #vk.7 )
+        next
+          case c_exp
+          by solve( !KU( ~x ) @ #vk.9 )
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltk.1 ) @ #vk.8 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma secrecy_PFS:
+  all-traces
+  "∀ A x #i.
+    (Secret( A, x ) @ #i) ⇒
+    ((¬(∃ #j. K( x ) @ #j)) ∨
+     (∃ X #r. ((Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)) ∧ (#r < #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A x #i.
+  (Secret( A, x ) @ #i)
+ ∧
+  (∃ #j. (K( x ) @ #j)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ¬(#r < #i))"
+*/
+simplify
+solve( Secret( A, x ) @ #i )
+  case A_2_receive
+  solve( St_A_2( A, id, ltkA, pk(x), B, x.1 ) ▶₀ #i )
+    case A_1_send
+    solve( !KU( sign(<'RESPONDER', gy, $A>, ~ltk.1) ) @ #vk.4 )
+      case B_2_send
+      solve( !KU( h('g'^(~x*~y)) ) @ #vk.1 )
+        case c_h
+        solve( !KU( sign(<'INITIATOR', gx, $A.1>, ~ltk.2) ) @ #vk.9 )
+          case A_1_send
+          solve( !KU( 'g'^(~x*~y) ) @ #vk.11 )
+            case A_1_send
+            by solve( !KU( ~y ) @ #vk.12 )
+          next
+            case B_2_send
+            by solve( !KU( ~x ) @ #vk.12 )
+          next
+            case c_exp
+            by solve( !KU( ~x ) @ #vk.14 )
+          qed
+        next
+          case c_sign
+          solve( !KU( ~ltk.2 ) @ #vk.14 )
+            case Reveal_ltk
+            by contradiction /* from formulas */
+          qed
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltk.1 ) @ #vk.8 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case B_2_send
+  solve( St_B_2( A, id, ltkB, pkA, A.1, gx ) ▶₀ #i )
+    case B_1_receive
+    solve( !KU( sign(<'INITIATOR', gx, $A>, ~ltk.1) ) @ #vk.4 )
+      case A_1_send
+      solve( !KU( h('g'^(~x*~y)) ) @ #vk.1 )
+        case c_h
+        solve( !KU( 'g'^(~x*~y) ) @ #vk.6 )
+          case A_1_send
+          by solve( !KU( ~y ) @ #vk.7 )
+        next
+          case B_2_send
+          by solve( !KU( ~x ) @ #vk.7 )
+        next
+          case c_exp
+          by solve( !KU( ~x ) @ #vk.9 )
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltk.1 ) @ #vk.8 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, id, ltkA, pk(x), b, x.1 ) ▶₀ #i )
+  case A_1_send
+  solve( !KU( sign(<'RESPONDER', gy, $A>, ~ltk.1) ) @ #vk.3 )
+    case B_2_send
+    solve( !KU( sign(<'INITIATOR', gx, $A.1>, ~ltk.2) ) @ #vk.8 )
+      case A_1_send
+      solve( !KU( pk(~ltk.1) ) @ #vk.5 )
+        case A_1_send
+        solve( !KU( pk(~ltk.2) ) @ #vk.9 )
+          case A_1_send
+          solve( !KU( 'g'^~y ) @ #vk.8 )
+            case B_2_send
+            solve( !KU( 'g'^~x.1 ) @ #vk.9 )
+              case A_1_send
+              SOLVED // trace found
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreement_INITIATOR_modified:
+  all-traces
+  "∀ a b t #i.
+    ((((Commit( a, b, <'I', 'R', t> ) @ #i) ∧
+       (∀ c d id1 id2 #j #k.
+         ((Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)) ⇒
+         (id1 = id2))) ∧
+      (∀ e f id3 id4 #l #m.
+        ((Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)) ⇒
+        (id3 = id4))) ∧
+     (¬(a = b))) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ c d id1 id2 #j #k.
+    (Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)
+   ⇒
+    id1 = id2) ∧
+  (∀ e f id3 id4 #l #m.
+    (Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)
+   ⇒
+    id3 = id4) ∧
+  (¬(a = b)) ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, id, ltkA, pk(x), b, x.1 ) ▶₀ #i )
+  case A_1_send
+  solve( !KU( sign(<'RESPONDER', gy, $A>, ~ltk.1) ) @ #vk.3 )
+    case B_2_send
+    solve( !KU( sign(<'INITIATOR', gx, $A.1>, ~ltk.2) ) @ #vk.8 )
+      case A_1_send
+      solve( (#i2 < #i)  ∥ (#i < #i2) )
+        case case_1
+        solve( St_A_2( a2, id.1, ltkA, pk(x.1), b2, x.2 ) ▶₀ #i2 )
+          case A_1_send
+          by contradiction /* cyclic */
+        qed
+      next
+        case case_2
+        solve( St_A_2( a2, id.1, ltkA, pk(x.1), b2, x.2 ) ▶₀ #i2 )
+          case A_1_send
+          by contradiction /* cyclic */
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~ltk.2 ) @ #vk.12 )
+        case Reveal_ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  next
+    case c_sign
+    solve( !KU( ~ltk.1 ) @ #vk.7 )
+      case Reveal_ltk
+      by contradiction /* from formulas */
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end

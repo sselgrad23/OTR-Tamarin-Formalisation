@@ -1,0 +1,958 @@
+theory OTR1 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, h/1, pair/2, pk/1, sign/2, snd/1, true/0,
+           verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+
+
+rule (modulo E) Register_key_pair:
+   [ Fr( ~ltk ) ]
+  -->
+   [ !Ltk( $A, ~ltk ), !Pk( $A, pk(~ltk) ), Out( pk(~ltk) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_ltk:
+   [ !Ltk( A, ltk ) ] --[ Reveal( A ) ]-> [ Out( ltk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_A:
+   [ Fr( ~id ), !Ltk( A, ltkA ), !Pk( B, pkB ) ]
+  --[ Create_A( A, ~id ) ]->
+   [ St_A_1( A, ~id, ltkA, pkB, B ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_B:
+   [ Fr( ~id ), !Ltk( B, ltkB ), !Pk( A, pkA ) ]
+  --[ Create_B( B, ~id ) ]->
+   [ St_B_1( B, ~id, ltkB, pkA, A ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_1_send:
+   [ St_A_1( A, id, ltkA, pkB, B ), Fr( ~x ) ]
+  --[ Send( A, <'g'^~x, sign('g'^~x, ltkA), pk(ltkA)> ) ]->
+   [
+   St_A_2( A, id, ltkA, pkB, B, ~x ),
+   Out( <'g'^~x, sign('g'^~x, ltkA), pk(ltkA)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_1_receive:
+   [ St_B_1( B, id, ltkB, pkA, A ), In( <gx, signature, pkA> ) ]
+  --[
+  Recv( B, <gx, signature, pkA> ),
+  Equal( verify(signature, gx, pkA), true )
+  ]->
+   [ St_B_2( B, id, ltkB, pkA, A, gx ) ]
+
+  /*
+  rule (modulo AC) B_1_receive:
+     [ St_B_1( B, id, ltkB, pkA, A ), In( <gx, signature, pkA> ) ]
+    --[ Recv( B, <gx, signature, pkA> ), Equal( z, true ) ]->
+     [ St_B_2( B, id, ltkB, pkA, A, gx ) ]
+    variants (modulo AC)
+    1. gx    = gx.9
+       pkA   = pkA.9
+       signature
+             = signature.9
+       z     = verify(signature.9, gx.9, pkA.9)
+    
+    2. gx    = x.9
+       pkA   = pk(x.12)
+       signature
+             = sign(x.9, x.12)
+       z     = true
+  */
+
+rule (modulo E) B_2_send:
+   [ St_B_2( B, id, ltkB, pkA, A, gx ), Fr( ~y ) ]
+  --[
+  Send( B, <'g'^~y, sign('g'^~y, ltkB), pk(ltkB)> ),
+  Secret( B, h(gx^~y) ), Honest( B ), Honest( A )
+  ]->
+   [
+   St_B_3( B, id, ltkB, pkA, A, gx, ~y, h(gx^~y) ),
+   Out( <'g'^~y, sign('g'^~y, ltkB), pk(ltkB)> )
+   ]
+
+  /*
+  rule (modulo AC) B_2_send:
+     [ St_B_2( B, id, ltkB, pkA, A, gx ), Fr( ~y ) ]
+    --[
+    Send( B, <'g'^~y, sign('g'^~y, ltkB), pk(ltkB)> ),
+    Secret( B, h(z) ), Honest( B ), Honest( A )
+    ]->
+     [
+     St_B_3( B, id, ltkB, pkA, A, gx, ~y, h(z) ),
+     Out( <'g'^~y, sign('g'^~y, ltkB), pk(ltkB)> )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.17
+       gx    = gx.20
+       z     = gx.20^~y.17
+    
+    2. ~y    = ~y.21
+       gx    = z.28^inv(~y.21)
+       z     = z.28
+    
+    3. ~y    = ~y.49
+       gx    = x.95^x.96
+       z     = x.95^(~y.49*x.96)
+    
+    4. ~y    = ~y.52
+       gx    = x.101^inv((~y.52*x.102))
+       z     = x.101^inv(x.102)
+    
+    5. ~y    = ~y.52
+       gx    = x.101^(x.102*inv(~y.52))
+       z     = x.101^x.102
+    
+    6. ~y    = ~y.53
+       gx    = x.102^(x.103*inv((~y.53*x.104)))
+       z     = x.102^(x.103*inv(x.104))
+  */
+
+rule (modulo E) A_2_receive:
+   [ St_A_2( A, id, ltkA, pkB, B, x ), In( <gy, signature, pkB> ) ]
+  --[
+  Recv( A, <gy, signature, pkB> ),
+  Equal( verify(signature, gy, pkB), true ), Secret( A, h(gy^x) ),
+  Honest( A ), Honest( B ), Finish( A, B )
+  ]->
+   [ St_A_3( A, id, ltkA, pkB, B, x, gy, h(gy^x) ) ]
+
+  /*
+  rule (modulo AC) A_2_receive:
+     [ St_A_2( A, id, ltkA, pkB, B, x ), In( <gy, signature, pkB> ) ]
+    --[
+    Recv( A, <gy, signature, pkB> ), Equal( z.1, true ),
+    Secret( A, h(z) ), Honest( A ), Honest( B ), Finish( A, B )
+    ]->
+     [ St_A_3( A, id, ltkA, pkB, B, x, gy, h(z) ) ]
+    variants (modulo AC)
+     1. gy    = gy.11
+        pkB   = pkB.11
+        signature
+              = signature.11
+        x     = x.11
+        z     = gy.11^x.11
+        z.1   = verify(signature.11, gy.11, pkB.11)
+    
+     2. gy    = gy.11
+        pkB   = pkB.11
+        signature
+              = signature.11
+        x     = one
+        z     = gy.11
+        z.1   = verify(signature.11, gy.11, pkB.11)
+    
+     3. gy    = x.11
+        pkB   = pk(x.14)
+        signature
+              = sign(x.11, x.14)
+        x     = x.15
+        z     = x.11^x.15
+        z.1   = true
+    
+     4. gy    = x.11
+        pkB   = pk(x.14)
+        signature
+              = sign(x.11, x.14)
+        x     = one
+        z     = x.11
+        z.1   = true
+    
+     5. gy    = x.11^x.12
+        pkB   = pkB.13
+        signature
+              = signature.13
+        x     = x.13
+        z     = x.11^(x.12*x.13)
+        z.1   = verify(signature.13, x.11^x.12, pkB.13)
+    
+     6. gy    = x.11^x.12
+        pkB   = pkB.13
+        signature
+              = signature.13
+        x     = inv(x.12)
+        z     = x.11
+        z.1   = verify(signature.13, x.11^x.12, pkB.13)
+    
+     7. gy    = x.11^x.12
+        pkB   = pkB.18
+        signature
+              = signature.18
+        x     = inv((x.12*x.17))
+        z     = x.11^inv(x.17)
+        z.1   = verify(signature.18, x.11^x.12, pkB.18)
+    
+     8. gy    = x.11^x.12
+        pkB   = pkB.18
+        signature
+              = signature.18
+        x     = (x.17*inv(x.12))
+        z     = x.11^x.17
+        z.1   = verify(signature.18, x.11^x.12, pkB.18)
+    
+     9. gy    = x.11^x.12
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.17*inv((x.12*x.18)))
+        z     = x.11^(x.17*inv(x.18))
+        z.1   = verify(signature.19, x.11^x.12, pkB.19)
+    
+    10. gy    = x.11^x.12
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^x.12, x.15)
+        x     = x.16
+        z     = x.11^(x.12*x.16)
+        z.1   = true
+    
+    11. gy    = x.11^x.12
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^x.12, x.15)
+        x     = inv(x.12)
+        z     = x.11
+        z.1   = true
+    
+    12. gy    = x.11^x.12
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^x.12, x.15)
+        x     = inv((x.12*x.16))
+        z     = x.11^inv(x.16)
+        z.1   = true
+    
+    13. gy    = x.11^x.12
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^x.12, x.15)
+        x     = (x.16*inv(x.12))
+        z     = x.11^x.16
+        z.1   = true
+    
+    14. gy    = x.11^x.12
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^x.12, x.15)
+        x     = (x.16*inv((x.12*x.17)))
+        z     = x.11^(x.16*inv(x.17))
+        z.1   = true
+    
+    15. gy    = x.11^inv(x.12)
+        pkB   = pkB.13
+        signature
+              = signature.13
+        x     = x.12
+        z     = x.11
+        z.1   = verify(signature.13, x.11^inv(x.12), pkB.13)
+    
+    16. gy    = x.11^inv(x.12)
+        pkB   = pkB.18
+        signature
+              = signature.18
+        x     = inv(x.17)
+        z     = x.11^inv((x.12*x.17))
+        z.1   = verify(signature.18, x.11^inv(x.12), pkB.18)
+    
+    17. gy    = x.11^inv(x.12)
+        pkB   = pkB.18
+        signature
+              = signature.18
+        x     = (x.12*x.17)
+        z     = x.11^x.17
+        z.1   = verify(signature.18, x.11^inv(x.12), pkB.18)
+    
+    18. gy    = x.11^inv(x.12)
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.17*inv(x.18))
+        z     = x.11^(x.17*inv((x.12*x.18)))
+        z.1   = verify(signature.19, x.11^inv(x.12), pkB.19)
+    
+    19. gy    = x.11^inv(x.12)
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^inv(x.12), x.15)
+        x     = x.12
+        z     = x.11
+        z.1   = true
+    
+    20. gy    = x.11^inv(x.12)
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^inv(x.12), x.15)
+        x     = inv(x.16)
+        z     = x.11^inv((x.12*x.16))
+        z.1   = true
+    
+    21. gy    = x.11^inv(x.12)
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^inv(x.12), x.15)
+        x     = (x.12*x.16)
+        z     = x.11^x.16
+        z.1   = true
+    
+    22. gy    = x.11^inv(x.12)
+        pkB   = pk(x.15)
+        signature
+              = sign(x.11^inv(x.12), x.15)
+        x     = (x.16*inv(x.17))
+        z     = x.11^(x.16*inv((x.12*x.17)))
+        z.1   = true
+    
+    23. gy    = x.11^inv((x.12*x.13))
+        pkB   = pkB.14
+        signature
+              = signature.14
+        x     = x.12
+        z     = x.11^inv(x.13)
+        z.1   = verify(signature.14, x.11^inv((x.12*x.13)), pkB.14)
+    
+    24. gy    = x.11^inv((x.12*x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.12*x.18)
+        z     = x.11^(x.18*inv(x.13))
+        z.1   = verify(signature.19, x.11^inv((x.12*x.13)), pkB.19)
+    
+    25. gy    = x.11^inv((x.12*x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.12*inv(x.18))
+        z     = x.11^inv((x.13*x.18))
+        z.1   = verify(signature.19, x.11^inv((x.12*x.13)), pkB.19)
+    
+    26. gy    = x.11^inv((x.12*x.13))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.12*x.18*inv(x.19))
+        z     = x.11^(x.18*inv((x.13*x.19)))
+        z.1   = verify(signature.20, x.11^inv((x.12*x.13)), pkB.20)
+    
+    27. gy    = x.11^inv((x.12*x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^inv((x.12*x.13)), x.16)
+        x     = x.12
+        z     = x.11^inv(x.13)
+        z.1   = true
+    
+    28. gy    = x.11^inv((x.12*x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^inv((x.12*x.13)), x.16)
+        x     = (x.12*x.17)
+        z     = x.11^(x.17*inv(x.13))
+        z.1   = true
+    
+    29. gy    = x.11^inv((x.12*x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^inv((x.12*x.13)), x.16)
+        x     = (x.12*x.17*inv(x.18))
+        z     = x.11^(x.17*inv((x.13*x.18)))
+        z.1   = true
+    
+    30. gy    = x.11^inv((x.12*x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^inv((x.12*x.13)), x.16)
+        x     = (x.12*inv(x.17))
+        z     = x.11^inv((x.13*x.17))
+        z.1   = true
+    
+    31. gy    = x.11^(x.12*x.13)
+        pkB   = pkB.14
+        signature
+              = signature.14
+        x     = inv(x.12)
+        z     = x.11^x.13
+        z.1   = verify(signature.14, x.11^(x.12*x.13), pkB.14)
+    
+    32. gy    = x.11^(x.12*x.13)
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = inv((x.12*x.18))
+        z     = x.11^(x.13*inv(x.18))
+        z.1   = verify(signature.19, x.11^(x.12*x.13), pkB.19)
+    
+    33. gy    = x.11^(x.12*x.13)
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.18*inv(x.12))
+        z     = x.11^(x.13*x.18)
+        z.1   = verify(signature.19, x.11^(x.12*x.13), pkB.19)
+    
+    34. gy    = x.11^(x.12*x.13)
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.18*inv((x.12*x.19)))
+        z     = x.11^(x.13*x.18*inv(x.19))
+        z.1   = verify(signature.20, x.11^(x.12*x.13), pkB.20)
+    
+    35. gy    = x.11^(x.12*x.13)
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*x.13), x.16)
+        x     = inv(x.12)
+        z     = x.11^x.13
+        z.1   = true
+    
+    36. gy    = x.11^(x.12*x.13)
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*x.13), x.16)
+        x     = inv((x.12*x.17))
+        z     = x.11^(x.13*inv(x.17))
+        z.1   = true
+    
+    37. gy    = x.11^(x.12*x.13)
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*x.13), x.16)
+        x     = (x.17*inv(x.12))
+        z     = x.11^(x.13*x.17)
+        z.1   = true
+    
+    38. gy    = x.11^(x.12*x.13)
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*x.13), x.16)
+        x     = (x.17*inv((x.12*x.18)))
+        z     = x.11^(x.13*x.17*inv(x.18))
+        z.1   = true
+    
+    39. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.15
+        signature
+              = signature.15
+        x     = (x.14*inv(x.12))
+        z     = x.11^x.13
+        z.1   = verify(signature.15, x.11^(x.12*x.13*inv(x.14)), pkB.15)
+    
+    40. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = inv((x.12*x.19))
+        z     = x.11^(x.13*inv((x.14*x.19)))
+        z.1   = verify(signature.20, x.11^(x.12*x.13*inv(x.14)), pkB.20)
+    
+    41. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.14*x.19*inv(x.12))
+        z     = x.11^(x.13*x.19)
+        z.1   = verify(signature.20, x.11^(x.12*x.13*inv(x.14)), pkB.20)
+    
+    42. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.14*inv((x.12*x.19)))
+        z     = x.11^(x.13*inv(x.19))
+        z.1   = verify(signature.20, x.11^(x.12*x.13*inv(x.14)), pkB.20)
+    
+    43. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.14*x.19*inv((x.12*x.20)))
+        z     = x.11^(x.13*x.19*inv(x.20))
+        z.1   = verify(signature.21, x.11^(x.12*x.13*inv(x.14)), pkB.21)
+    
+    44. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.19*inv((x.12*x.20)))
+        z     = x.11^(x.13*x.19*inv((x.14*x.20)))
+        z.1   = verify(signature.21, x.11^(x.12*x.13*inv(x.14)), pkB.21)
+    
+    45. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = inv((x.12*x.18))
+        z     = x.11^(x.13*inv((x.14*x.18)))
+        z.1   = true
+    
+    46. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = (x.14*x.18*inv(x.12))
+        z     = x.11^(x.13*x.18)
+        z.1   = true
+    
+    47. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = (x.14*x.18*inv((x.12*x.19)))
+        z     = x.11^(x.13*x.18*inv(x.19))
+        z.1   = true
+    
+    48. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = (x.14*inv(x.12))
+        z     = x.11^x.13
+        z.1   = true
+    
+    49. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = (x.14*inv((x.12*x.18)))
+        z     = x.11^(x.13*inv(x.18))
+        z.1   = true
+    
+    50. gy    = x.11^(x.12*x.13*inv(x.14))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*x.13*inv(x.14)), x.17)
+        x     = (x.18*inv((x.12*x.19)))
+        z     = x.11^(x.13*x.18*inv((x.14*x.19)))
+        z.1   = true
+    
+    51. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pkB.16
+        signature
+              = signature.16
+        x     = (x.14*inv(x.12))
+        z     = x.11^(x.13*inv(x.15))
+        z.1   = verify(signature.16, x.11^(x.12*x.13*inv((x.14*x.15))),
+                       pkB.16)
+    
+    52. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.14*x.20*inv(x.12))
+        z     = x.11^(x.13*x.20*inv(x.15))
+        z.1   = verify(signature.21, x.11^(x.12*x.13*inv((x.14*x.15))),
+                       pkB.21)
+    
+    53. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.14*inv((x.12*x.20)))
+        z     = x.11^(x.13*inv((x.15*x.20)))
+        z.1   = verify(signature.21, x.11^(x.12*x.13*inv((x.14*x.15))),
+                       pkB.21)
+    
+    54. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pkB.22
+        signature
+              = signature.22
+        x     = (x.14*x.20*inv((x.12*x.21)))
+        z     = x.11^(x.13*x.20*inv((x.15*x.21)))
+        z.1   = verify(signature.22, x.11^(x.12*x.13*inv((x.14*x.15))),
+                       pkB.22)
+    
+    55. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pk(x.18)
+        signature
+              = sign(x.11^(x.12*x.13*inv((x.14*x.15))), x.18)
+        x     = (x.14*x.19*inv(x.12))
+        z     = x.11^(x.13*x.19*inv(x.15))
+        z.1   = true
+    
+    56. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pk(x.18)
+        signature
+              = sign(x.11^(x.12*x.13*inv((x.14*x.15))), x.18)
+        x     = (x.14*x.19*inv((x.12*x.20)))
+        z     = x.11^(x.13*x.19*inv((x.15*x.20)))
+        z.1   = true
+    
+    57. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pk(x.18)
+        signature
+              = sign(x.11^(x.12*x.13*inv((x.14*x.15))), x.18)
+        x     = (x.14*inv(x.12))
+        z     = x.11^(x.13*inv(x.15))
+        z.1   = true
+    
+    58. gy    = x.11^(x.12*x.13*inv((x.14*x.15)))
+        pkB   = pk(x.18)
+        signature
+              = sign(x.11^(x.12*x.13*inv((x.14*x.15))), x.18)
+        x     = (x.14*inv((x.12*x.19)))
+        z     = x.11^(x.13*inv((x.15*x.19)))
+        z.1   = true
+    
+    59. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.14
+        signature
+              = signature.14
+        x     = x.13
+        z     = x.11^x.12
+        z.1   = verify(signature.14, x.11^(x.12*inv(x.13)), pkB.14)
+    
+    60. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.14
+        signature
+              = signature.14
+        x     = (x.13*inv(x.12))
+        z     = x.11
+        z.1   = verify(signature.14, x.11^(x.12*inv(x.13)), pkB.14)
+    
+    61. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = inv(x.18)
+        z     = x.11^(x.12*inv((x.13*x.18)))
+        z.1   = verify(signature.19, x.11^(x.12*inv(x.13)), pkB.19)
+    
+    62. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = inv((x.12*x.18))
+        z     = x.11^inv((x.13*x.18))
+        z.1   = verify(signature.19, x.11^(x.12*inv(x.13)), pkB.19)
+    
+    63. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.13*x.18)
+        z     = x.11^(x.12*x.18)
+        z.1   = verify(signature.19, x.11^(x.12*inv(x.13)), pkB.19)
+    
+    64. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.13*x.18*inv(x.12))
+        z     = x.11^x.18
+        z.1   = verify(signature.19, x.11^(x.12*inv(x.13)), pkB.19)
+    
+    65. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.19
+        signature
+              = signature.19
+        x     = (x.13*inv((x.12*x.18)))
+        z     = x.11^inv(x.18)
+        z.1   = verify(signature.19, x.11^(x.12*inv(x.13)), pkB.19)
+    
+    66. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.13*x.18*inv((x.12*x.19)))
+        z     = x.11^(x.18*inv(x.19))
+        z.1   = verify(signature.20, x.11^(x.12*inv(x.13)), pkB.20)
+    
+    67. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.18*inv(x.19))
+        z     = x.11^(x.12*x.18*inv((x.13*x.19)))
+        z.1   = verify(signature.20, x.11^(x.12*inv(x.13)), pkB.20)
+    
+    68. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.18*inv((x.12*x.19)))
+        z     = x.11^(x.18*inv((x.13*x.19)))
+        z.1   = verify(signature.20, x.11^(x.12*inv(x.13)), pkB.20)
+    
+    69. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = x.13
+        z     = x.11^x.12
+        z.1   = true
+    
+    70. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = inv(x.17)
+        z     = x.11^(x.12*inv((x.13*x.17)))
+        z.1   = true
+    
+    71. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = inv((x.12*x.17))
+        z     = x.11^inv((x.13*x.17))
+        z.1   = true
+    
+    72. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.13*x.17)
+        z     = x.11^(x.12*x.17)
+        z.1   = true
+    
+    73. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.13*x.17*inv(x.12))
+        z     = x.11^x.17
+        z.1   = true
+    
+    74. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.13*x.17*inv((x.12*x.18)))
+        z     = x.11^(x.17*inv(x.18))
+        z.1   = true
+    
+    75. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.13*inv(x.12))
+        z     = x.11
+        z.1   = true
+    
+    76. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.13*inv((x.12*x.17)))
+        z     = x.11^inv(x.17)
+        z.1   = true
+    
+    77. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.17*inv(x.18))
+        z     = x.11^(x.12*x.17*inv((x.13*x.18)))
+        z.1   = true
+    
+    78. gy    = x.11^(x.12*inv(x.13))
+        pkB   = pk(x.16)
+        signature
+              = sign(x.11^(x.12*inv(x.13)), x.16)
+        x     = (x.17*inv((x.12*x.18)))
+        z     = x.11^(x.17*inv((x.13*x.18)))
+        z.1   = true
+    
+    79. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.15
+        signature
+              = signature.15
+        x     = x.13
+        z     = x.11^(x.12*inv(x.14))
+        z.1   = verify(signature.15, x.11^(x.12*inv((x.13*x.14))), pkB.15)
+    
+    80. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.15
+        signature
+              = signature.15
+        x     = (x.13*inv(x.12))
+        z     = x.11^inv(x.14)
+        z.1   = verify(signature.15, x.11^(x.12*inv((x.13*x.14))), pkB.15)
+    
+    81. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.13*x.19)
+        z     = x.11^(x.12*x.19*inv(x.14))
+        z.1   = verify(signature.20, x.11^(x.12*inv((x.13*x.14))), pkB.20)
+    
+    82. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.13*x.19*inv(x.12))
+        z     = x.11^(x.19*inv(x.14))
+        z.1   = verify(signature.20, x.11^(x.12*inv((x.13*x.14))), pkB.20)
+    
+    83. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.13*inv(x.19))
+        z     = x.11^(x.12*inv((x.14*x.19)))
+        z.1   = verify(signature.20, x.11^(x.12*inv((x.13*x.14))), pkB.20)
+    
+    84. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.20
+        signature
+              = signature.20
+        x     = (x.13*inv((x.12*x.19)))
+        z     = x.11^inv((x.14*x.19))
+        z.1   = verify(signature.20, x.11^(x.12*inv((x.13*x.14))), pkB.20)
+    
+    85. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.13*x.19*inv(x.20))
+        z     = x.11^(x.12*x.19*inv((x.14*x.20)))
+        z.1   = verify(signature.21, x.11^(x.12*inv((x.13*x.14))), pkB.21)
+    
+    86. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pkB.21
+        signature
+              = signature.21
+        x     = (x.13*x.19*inv((x.12*x.20)))
+        z     = x.11^(x.19*inv((x.14*x.20)))
+        z.1   = verify(signature.21, x.11^(x.12*inv((x.13*x.14))), pkB.21)
+    
+    87. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = x.13
+        z     = x.11^(x.12*inv(x.14))
+        z.1   = true
+    
+    88. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*x.18)
+        z     = x.11^(x.12*x.18*inv(x.14))
+        z.1   = true
+    
+    89. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*x.18*inv(x.12))
+        z     = x.11^(x.18*inv(x.14))
+        z.1   = true
+    
+    90. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*x.18*inv(x.19))
+        z     = x.11^(x.12*x.18*inv((x.14*x.19)))
+        z.1   = true
+    
+    91. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*x.18*inv((x.12*x.19)))
+        z     = x.11^(x.18*inv((x.14*x.19)))
+        z.1   = true
+    
+    92. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*inv(x.12))
+        z     = x.11^inv(x.14)
+        z.1   = true
+    
+    93. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*inv(x.18))
+        z     = x.11^(x.12*inv((x.14*x.18)))
+        z.1   = true
+    
+    94. gy    = x.11^(x.12*inv((x.13*x.14)))
+        pkB   = pk(x.17)
+        signature
+              = sign(x.11^(x.12*inv((x.13*x.14))), x.17)
+        x     = (x.13*inv((x.12*x.18)))
+        z     = x.11^inv((x.14*x.18))
+        z.1   = true
+  */
+
+restriction Equality:
+  "∀ a b #i. (Equal( a, b ) @ #i) ⇒ (a = b)"
+  // safety formula
+
+lemma executable:
+  exists-trace
+  "∃ a b #i.
+    ((((Finish( a, b ) @ #i) ∧ (¬(a = b))) ∧
+      (∀ c d id1 id2 #j #k.
+        ((Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)) ⇒
+        (id1 = id2))) ∧
+     (∀ e f id3 id4 #l #m.
+       ((Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)) ⇒
+       (id3 = id4))) ∧
+    (¬(∃ X #n. Reveal( X ) @ #n))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ a b #i.
+  (Finish( a, b ) @ #i)
+ ∧
+  (¬(a = b)) ∧
+  (∀ c d id1 id2 #j #k.
+    (Create_A( c, id1 ) @ #j) ∧ (Create_A( d, id2 ) @ #k)
+   ⇒
+    id1 = id2) ∧
+  (∀ e f id3 id4 #l #m.
+    (Create_B( e, id3 ) @ #l) ∧ (Create_B( f, id4 ) @ #m)
+   ⇒
+    id3 = id4) ∧
+  (∀ X #n. (Reveal( X ) @ #n) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_2( a, id, ltkA, pk(x), b, x.1 ) ▶₀ #i )
+  case A_1_send
+  solve( !KU( sign(gy, ~ltk.1) ) @ #vk.3 )
+    case B_2_send
+    solve( !KU( sign(gx, ~ltk.2) ) @ #vk.8 )
+      case A_1_send
+      solve( !KU( pk(~ltk.1) ) @ #vk.5 )
+        case B_2_send
+        solve( !KU( pk(~ltk) ) @ #vk.9 )
+          case A_1_send
+          solve( !KU( 'g'^~y ) @ #vk.8 )
+            case B_2_send
+            solve( !KU( 'g'^~x ) @ #vk.9 )
+              case A_1_send
+              SOLVED // trace found
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end
